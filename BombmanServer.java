@@ -173,14 +173,46 @@ class You extends Player {
     }
 }
 
+class PerformanceCounter {
+    long sumNanos;
+    long nDataPoints;
+    long maxNanos = Long.MIN_VALUE;
+    long minNanos = Long.MAX_VALUE;
+
+    void addNanos(long elapsedNanos){
+        maxNanos = Math.max(elapsedNanos, maxNanos);
+        minNanos = Math.min(elapsedNanos, minNanos);
+        sumNanos += elapsedNanos;
+        nDataPoints += 1;
+    }
+
+    long getMinNanos(){
+        if (nDataPoints == 0) throw new RuntimeException("no data points");
+        return minNanos;
+    }
+
+    long getMaxNanos(){
+        if (nDataPoints == 0) throw new RuntimeException("no data points");
+        return maxNanos;
+    }
+
+    long getAvgNanos(){
+        if (nDataPoints == 0) throw new RuntimeException("no data points");
+        return sumNanos / nDataPoints;
+    }
+}
+
+
 class ExAI extends Player {
     transient BufferedWriter writer;
     transient BufferedReader reader;
     transient BufferedReader errorReader;
     transient Process proc;
+    transient PerformanceCounter perf;
 
     ExAI(String command){
         super("未接続");
+        perf = new PerformanceCounter();
         try {
             proc = Runtime.getRuntime().exec(command);
             writer = new BufferedWriter(new OutputStreamWriter(proc.getOutputStream(),"UTF-8"));
@@ -209,6 +241,19 @@ class ExAI extends Player {
     }
     
     public ActionData action(String mapData){
+        long startTime = System.nanoTime();
+        ActionData ret = doAction(mapData);
+        long elapsedNanos = System.nanoTime() - startTime;
+        long elapsedMillis = elapsedNanos / 1000 / 1000;
+
+        perf.addNanos(elapsedNanos);
+        if (elapsedMillis >= 500) {
+            System.out.println("警告: " + this.name + "が応答に" + elapsedMillis + "ミリ秒かかりました。");
+        }
+        return ret;
+    }
+
+    public ActionData doAction(String mapData){
         try {
             writer.write(mapData+"\n");
             writer.flush();
@@ -251,6 +296,12 @@ class ExAI extends Player {
                 System.out.println(this.name + "が終了しました。");
                 proc = null;
             }
+            String msg = String.format("%s パフォーマンス min/avg/max %.3f/%.3f/%.3f ms",
+                                       this.name,
+                                       (double) perf.getMinNanos() / 1000 / 1000,
+                                       (double) perf.getAvgNanos() / 1000 / 1000,
+                                       (double) perf.getMaxNanos() / 1000 / 1000);
+            System.out.println(msg);
         } catch (Exception e) {
             System.out.println(e);
         }
